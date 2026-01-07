@@ -1,0 +1,88 @@
+{
+  "name": "vscode-nette-translation",
+  "displayName": "Nette Translations",
+  "description": "Helper for Nette translations in Latte and NEON files",
+  "version": "0.0.1",
+  "publisher": "zraly",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zraly/vscode-nette-translation.git"
+  },
+  "keywords": [
+    "nette",
+    "latte",
+    "neon",
+    "translation",
+    "localization",
+    "i18n",
+    "contributte",
+    "gettext"
+  ],
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:latte"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "netteTranslations.edit",
+        "title": "Edit Nette Translation"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Nette Translations",
+      "properties": {
+        "netteTranslations.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for auto-translation (e.g., OpenAI)"
+        },
+        "netteTranslations.model": {
+          "type": "string",
+          "default": "gpt-5-mini",
+          "description": "LLM Model to use"
+        },
+        "netteTranslations.languages": {
+          "type": "array",
+          "default": [
+            "cs",
+            "en"
+          ],
+          "description": "Target languages for translation"
+        },
+        "netteTranslations.neonPath": {
+          "type": "string",
+          "default": "app",
+          "description": "Path to NEON files relative to workspace root (e.g., app/Lang)"
+        },
+        "netteTranslations.defaultLanguage": {
+          "type": "string",
+          "default": "en",
+          "description": "Default language code to prioritize for Go to Definition (e.g., 'cs', 'en_US')"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.7.1",
+    "typescript": "^5.1.3"
+  },
+  "dependencies": {
+    "openai": "^4.0.0"
+  }
+}
