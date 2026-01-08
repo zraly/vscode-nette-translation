@@ -11,7 +11,7 @@ export class TranslationDefinitionProvider implements vscode.DefinitionProvider 
         console.log('TDP: provideDefinition called');
 
         // Regex to match {_key} or {_//key} (absolute) or {_'key'} or {_"key"}
-        const range = document.getWordRangeAtPosition(position, /\{_\/{0,2}['\"]?[\w\.]+['\"]?(?:\|[^}]+)?\}/);
+        const range = document.getWordRangeAtPosition(position, /\{_\/{0,2}['"]?[\w\.]+['"]?(?:\|[^}]+)?\}/);
         if (!range) {
             console.log('TDP: No range matched');
             return undefined;
@@ -23,7 +23,7 @@ export class TranslationDefinitionProvider implements vscode.DefinitionProvider 
         // Extract key from {_key} or {_//key} or {_'key'}
         // Capture group 1: optional // (absolute marker)
         // Capture group 2: the key itself
-        const match = text.match(/\{_(\/\/)?['\"]?([\w\.]+)['\"]?/);
+        const match = text.match(/\{_(\/\/)?['"]?([\w\.]+)['"]?/);
         if (!match) {
             console.log('TDP: No key match in parsing');
             return undefined;
@@ -34,12 +34,31 @@ export class TranslationDefinitionProvider implements vscode.DefinitionProvider 
         console.log(`TDP: extracted raw key: ${key}, isAbsolute: ${isAbsolute}`);
 
         // Check for surrounding {translator} macro (only if NOT absolute)
+        // Note: {snippet} macro breaks the translator context, so we must track snippet boundaries
         let namespace = '';
         if (!isAbsolute) {
             let openTranslators = 0;
+            let openSnippets = 0;
 
             for (let i = position.line; i >= 0; i--) {
                 const lineText = document.lineAt(i).text;
+
+                // Check for closing snippet tags - these mean we're exiting a snippet scope going backwards
+                const closeSnippetMatches = lineText.match(/\{\/snippet\}/g);
+                if (closeSnippetMatches) openSnippets -= closeSnippetMatches.length;
+
+                // Check for opening snippet tags {snippet ...} or n:snippet="..."
+                // If we hit an opening snippet tag while openSnippets > 0, we're inside a snippet
+                const openSnippetMatch = lineText.match(/\{snippet\s+\w+\s*\}/);
+                const nSnippetMatch = lineText.match(/n:snippet=/);
+                if (openSnippetMatch || nSnippetMatch) {
+                    openSnippets += 1;
+                    if (openSnippets > 0) {
+                        // We're inside a snippet scope - translator context is broken
+                        // Stop searching, namespace stays empty
+                        break;
+                    }
+                }
 
                 const closeMatches = lineText.match(/\{\/translator\}/g);
                 if (closeMatches) {
@@ -47,7 +66,7 @@ export class TranslationDefinitionProvider implements vscode.DefinitionProvider 
                 }
 
                 // Fixed: Allow optional trailing space before }
-                const openMatch = lineText.match(/\{translator\s+(['\"]?)([\w\.]+)\1\s*\}/);
+                const openMatch = lineText.match(/\{translator\s+(['"]?)([\w\.]+)\1\s*\}/);
                 if (openMatch) {
                     openTranslators += 1;
 

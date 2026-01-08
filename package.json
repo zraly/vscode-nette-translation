@@ -2,7 +2,7 @@
   "name": "vscode-nette-translation",
   "displayName": "Nette Translations",
   "description": "Helper for Nette translations in Latte and NEON files",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "icon": "icon.png",
   "publisher": "zraly",
   "license": "MIT",
