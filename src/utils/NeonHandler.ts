@@ -152,19 +152,210 @@ export class NeonHandler {
                 edit.replace(fileUri, line.range, newText);
             }
         } else {
+            // Try to find the deepest existing parent key and insert nested under it
+            const insertPosition = this.findInsertPosition(document, keyParts);
 
-            // Simplest valid NEON for Nette: "one.two.three: value" is valid if Nette is configured well? 
-            // Actually Nette NEON usually prefers proper nesting. 
-            // BUT writing "a.b: c" at top level is valid in NEON and results in array('a' => array('b' => 'c')).
-            // So we can perform a safe hack: append "full.key: 'value'" to the end.
+            if (insertPosition) {
+                // Found a parent key - insert nested under it
+                const { lineIndex: parentLine, depth, parentIndent } = insertPosition;
+                const remainingParts = keyParts.slice(depth);
 
-            const position = new vscode.Position(document.lineCount, 0);
-            const content = `\n${key}: "${value}"`;
-            edit.insert(fileUri, position, content);
+                // Determine indentation - use parent's indent + one level (typically 4 spaces or 1 tab)
+                // Detect indentation style from the file
+                const indentUnit = this.detectIndentUnit(document);
+
+                // Build the nested structure for remaining parts
+                let content = '';
+                // Calculate parent's actual indent level from character position
+                // e.g., if parentIndent is 0 and indentUnit is '\t', parent is at level 0
+                // if parentIndent is 4 and indentUnit is '    ' (4 spaces), parent is at level 1
+                const parentIndentLevel = indentUnit.length > 0 ? Math.floor(parentIndent / indentUnit.length) : 0;
+
+                for (let i = 0; i < remainingParts.length; i++) {
+                    const part = remainingParts[i];
+                    // Child should be at parent level + 1, plus any intermediate nesting
+                    const indentLevel = parentIndentLevel + 1 + i;
+                    const indent = indentUnit.repeat(indentLevel);
+
+                    if (i === remainingParts.length - 1) {
+                        // Last part - add the value
+                        content += `\n${indent}${part}: "${value}"`;
+                    } else {
+                        // Intermediate part - just the key
+                        content += `\n${indent}${part}:`;
+                    }
+                }
+
+                // Find the end of the parent section to insert after all its children
+                const insertLine = this.findSectionEnd(document, parentLine, parentIndent);
+                const position = new vscode.Position(insertLine, document.lineAt(insertLine).text.length);
+                edit.insert(fileUri, position, content);
+            } else {
+                // No parent found - append at end with proper nesting from root
+                let content = '\n';
+                const indentUnit = this.detectIndentUnit(document);
+
+                for (let i = 0; i < keyParts.length; i++) {
+                    const part = keyParts[i];
+                    // First level has no indent, subsequent levels get one indent unit per level
+                    const indent = i === 0 ? '' : indentUnit.repeat(i);
+
+                    if (i === keyParts.length - 1) {
+                        content += `${indent}${part}: "${value}"`;
+                    } else {
+                        content += `${indent}${part}:\n`;
+                    }
+                }
+
+                const position = new vscode.Position(document.lineCount, 0);
+                edit.insert(fileUri, position, content);
+            }
         }
 
         await vscode.workspace.applyEdit(edit);
         await document.save();
+    }
+
+
+    /**
+     * Finds the deepest existing parent key in the document for the given key parts.
+     * Returns the line index, depth (how many parts matched), and the parent's indentation.
+     */
+    private static findInsertPosition(document: vscode.TextDocument, keyParts: string[]): { lineIndex: number, depth: number, parentIndent: number } | null {
+        const lines = document.getText().split('\n');
+        const keyStack: { key: string, indent: number, line: number }[] = [];
+        let bestMatch: { lineIndex: number, depth: number, parentIndent: number } | null = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            if (!trimmed || trimmed.startsWith('#')) {
+                continue;
+            }
+
+            const indent = line.search(/\S/);
+            const match = trimmed.match(/^(['"]?)([\w\.-]+)\1\s*[:=]/);
+            if (!match) {
+                continue;
+            }
+
+            const currentKey = match[2];
+
+            // Adjust stack based on indentation
+            while (keyStack.length > 0 && keyStack[keyStack.length - 1].indent >= indent) {
+                keyStack.pop();
+            }
+
+            keyStack.push({ key: currentKey, indent, line: i });
+
+            // Check how many parts of keyParts match the current stack
+            let matchDepth = 0;
+            for (let j = 0; j < Math.min(keyStack.length, keyParts.length); j++) {
+                if (keyStack[j].key === keyParts[j]) {
+                    matchDepth = j + 1;
+                } else {
+                    break;
+                }
+            }
+
+            // If we found a deeper match than before, update bestMatch
+            if (matchDepth > 0 && matchDepth < keyParts.length) {
+                if (!bestMatch || matchDepth > bestMatch.depth) {
+                    bestMatch = {
+                        lineIndex: keyStack[matchDepth - 1].line,
+                        depth: matchDepth,
+                        parentIndent: keyStack[matchDepth - 1].indent
+                    };
+                }
+            }
+        }
+
+        return bestMatch;
+    }
+
+    /**
+     * Detects the indentation unit used in the document (spaces or tabs).
+     * Returns the indentation string (e.g., "    " for 4 spaces or "\t" for tab).
+     */
+    private static detectIndentUnit(document: vscode.TextDocument): string {
+        const lines = document.getText().split('\n');
+
+        for (const line of lines) {
+            const match = line.match(/^(\s+)\S/);
+            if (match) {
+                const whitespace = match[1];
+                if (whitespace.includes('\t')) {
+                    return '\t';
+                }
+                // Return the first indentation we find (could be 2, 4, etc. spaces)
+                return whitespace;
+            }
+        }
+
+        // Default to 4 spaces if no indentation found
+        return '    ';
+    }
+
+    /**
+     * Finds the last line of a section (where children of a parent key end).
+     * Returns the line index where new content should be inserted after.
+     * Properly handles multiline strings (""" or ''').
+     */
+    private static findSectionEnd(document: vscode.TextDocument, parentLine: number, parentIndent: number): number {
+        const lines = document.getText().split('\n');
+        let lastChildLine = parentLine;
+        let inMultilineString = false;
+        let multilineDelimiter = '';
+
+        for (let i = parentLine + 1; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            // Handle multiline string start/end
+            if (inMultilineString) {
+                // Check if this line ends the multiline string
+                if (trimmed === multilineDelimiter || trimmed.endsWith(multilineDelimiter)) {
+                    inMultilineString = false;
+                    multilineDelimiter = '';
+                }
+                // Still inside multiline string, update lastChildLine and continue
+                lastChildLine = i;
+                continue;
+            }
+
+            // Check if a multiline string starts on this line
+            // Multiline strings: key: """ or key: '''
+            if (trimmed.endsWith('"""') || trimmed.endsWith("'''")) {
+                const delimiter = trimmed.endsWith('"""') ? '"""' : "'''";
+                // Check if it's both start and end on same line (unlikely but possible)
+                const count = (trimmed.match(new RegExp(delimiter.replace(/'/g, "\\'"), 'g')) || []).length;
+                if (count === 1) {
+                    // Only one delimiter - multiline string starts
+                    inMultilineString = true;
+                    multilineDelimiter = delimiter;
+                }
+                lastChildLine = i;
+                continue;
+            }
+
+            // Skip empty lines and comments
+            if (!trimmed || trimmed.startsWith('#')) {
+                continue;
+            }
+
+            const indent = line.search(/\S/);
+
+            // If we find a line with same or less indentation, we've left the section
+            if (indent <= parentIndent) {
+                break;
+            }
+
+            // This line is a child of the parent
+            lastChildLine = i;
+        }
+
+        return lastChildLine;
     }
 
     private static isKeyMatch(lineContent: string, key: string): boolean {

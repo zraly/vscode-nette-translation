@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-01-15
+
+### Fixed
+- Fixed translation key insertion to properly nest new keys under existing parent keys
+  - When adding a new key like `bar` in translator scope `foo`, it now correctly inserts under the existing `foo:` section
+  - Previously, new keys were appended at the end of the file in flat format (`foo.bar: "value"`)
+  - New logic detects existing parent keys and proper indentation style (tabs or spaces)
+- Fixed handling of multiline strings (`"""` or `'''`) when inserting new keys
+  - New keys are now correctly inserted after multiline value blocks
+
 ## [0.0.3] - 2026-01-08
 
 ### Fixed
