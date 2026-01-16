@@ -43,9 +43,17 @@ export class TranslationPanel {
             async message => {
                 switch (message.command) {
                     case 'save':
-                        await this.saveTranslations(message.translations);
-                        vscode.window.showInformationMessage('Translations saved!');
-                        this._panel.dispose(); // Close the panel
+                        const result = await this.saveTranslations(message.translations, message.newKey);
+                        if (result.success) {
+                            vscode.window.showInformationMessage('Translations saved!');
+                            this._panel.dispose(); // Close the panel
+                        } else {
+                            // Send error back to webview
+                            this._panel.webview.postMessage({
+                                command: 'keyError',
+                                message: result.error
+                            });
+                        }
                         return;
                     case 'translate':
                         console.log('[TranslationPanel] Received translate message:', message);
@@ -149,7 +157,36 @@ export class TranslationPanel {
     private _currentKey: string = '';
     private _translationsData: any[] = [];
 
-    private async saveTranslations(translations: { [lang: string]: string }) {
+    private async saveTranslations(
+        translations: { [lang: string]: string },
+        newKey?: string
+    ): Promise<{ success: boolean; error?: string }> {
+        const keyChanged = newKey && newKey !== this._currentKey;
+
+        // If key changed, check for duplicates first
+        if (keyChanged) {
+            for (const t of this._translationsData) {
+                const uri = vscode.Uri.parse(t.file);
+                const exists = await NeonHandler.keyExists(uri, newKey);
+                if (exists) {
+                    return {
+                        success: false,
+                        error: `Key "${newKey}" already exists. Please choose a different name.`
+                    };
+                }
+            }
+
+            // Rename key in all files
+            for (const t of this._translationsData) {
+                const uri = vscode.Uri.parse(t.file);
+                await NeonHandler.renameKey(uri, this._currentKey, newKey);
+            }
+
+            // Update current key for value saving
+            this._currentKey = newKey;
+        }
+
+        // Save translations values
         // translations is {lang: value, ...}
         // We need to map lang back to the file URI using _translationsData
         for (const [lang, value] of Object.entries(translations)) {
@@ -161,6 +198,8 @@ export class TranslationPanel {
                 }
             }
         }
+
+        return { success: true };
     }
 
     private async autoTranslate(data: { key: string, sourceLang: string, sourceValue: string, targetLangs: string[] }) {
@@ -420,13 +459,52 @@ export class TranslationPanel {
             background: var(--input-bg);
             border-color: var(--focus-border);
         }
+        .key-input-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .key-input-container label {
+            font-size: 0.85em;
+            opacity: 0.8;
+            font-weight: 600;
+        }
+        input.key-input {
+            background: var(--input-bg);
+            color: var(--input-fg);
+            border: 1px solid var(--input-border);
+            padding: 8px;
+            border-radius: 2px;
+            font-family: monospace;
+            font-size: inherit;
+        }
+        input.key-input:focus {
+            outline: 1px solid var(--focus-border);
+            border-color: var(--focus-border);
+        }
+        input.key-input.error {
+            border-color: #f44336;
+            outline-color: #f44336;
+        }
+        .key-error {
+            color: #f44336;
+            font-size: 0.85em;
+            margin-top: -4px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header-container">
-            <h2 style="margin:0">Refining Translation: <span class="header-key">${key}</span></h2>
+            <h2 style="margin:0">Edit Translation</h2>
             <button class="close-btn" id="header-close-btn" title="Close">✕</button>
+        </div>
+        
+        <div class="key-input-container">
+            <label>TRANSLATION KEY</label>
+            <input type="text" id="key-input" class="key-input" value="${key}" data-original="${key}" />
+            <div id="key-error" class="key-error hidden"></div>
         </div>
         
         ${inputsHtml}
@@ -465,13 +543,22 @@ export class TranslationPanel {
         }
 
         function saveAll() {
+            // Clear any previous error
+            const keyInput = document.getElementById('key-input');
+            const keyError = document.getElementById('key-error');
+            keyInput.classList.remove('error');
+            keyError.classList.add('hidden');
+            keyError.textContent = '';
+            
             const inputs = document.querySelectorAll('.translation-input');
             const data = {};
             inputs.forEach(input => {
                 const lang = input.id.replace('input-', '');
                 data[lang] = input.value;
             });
-            vscode.postMessage({ command: 'save', translations: data });
+            
+            const newKey = keyInput.value.trim();
+            vscode.postMessage({ command: 'save', translations: data, newKey: newKey });
         }
 
         function triggerTranslate(sourceLang) {
@@ -531,6 +618,14 @@ export class TranslationPanel {
                     }
                 });
                 document.getElementById('loader').classList.remove('visible');
+            } else if (message.command === 'keyError') {
+                // Show error on key input
+                const keyInput = document.getElementById('key-input');
+                const keyError = document.getElementById('key-error');
+                keyInput.classList.add('error');
+                keyError.textContent = message.message;
+                keyError.classList.remove('hidden');
+                keyInput.focus();
             }
         });
 

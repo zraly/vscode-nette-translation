@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-01-16
+
+### Added
+- Translation key renaming directly in the edit dialog
+  - Change the key name and it updates across all translation files
+  - Duplicate key validation prevents overwriting existing keys
+  - Error message displayed if new key already exists
+
 ## [1.0.0] - 2026-01-15
 
 ### Fixed

@@ -363,4 +363,92 @@ export class NeonHandler {
         // Also handles headers [key] if that was a thing (config files), but mostly translation files are hashes.
         return lineContent.startsWith(key + ':') || lineContent.startsWith(key + '=') || lineContent === key;
     }
+
+    /**
+     * Checks if a key exists in the given NEON file.
+     * Used for duplicate validation before rename.
+     */
+    public static async keyExists(fileUri: vscode.Uri, key: string): Promise<boolean> {
+        const document = await vscode.workspace.openTextDocument(fileUri);
+
+        // Determine domain from filename to strip it from key
+        const fileName = fileUri.path.split('/').pop() || '';
+        const domain = fileName.split('.')[0];
+
+        let targetKey = key;
+        if (key.startsWith(domain + '.')) {
+            targetKey = key.substring(domain.length + 1);
+        }
+
+        const keyParts = targetKey.split('.');
+        const lineIndex = this.findKeyLine(document, keyParts, true);
+
+        return lineIndex !== -1;
+    }
+
+    /**
+     * Renames a key in the given NEON file.
+     * Finds the line with oldKey and replaces the key portion with newKey.
+     */
+    public static async renameKey(fileUri: vscode.Uri, oldKey: string, newKey: string): Promise<void> {
+        const document = await vscode.workspace.openTextDocument(fileUri);
+
+        // Determine domain from filename to strip it from keys
+        const fileName = fileUri.path.split('/').pop() || '';
+        const domain = fileName.split('.')[0];
+
+        let targetOldKey = oldKey;
+        if (oldKey.startsWith(domain + '.')) {
+            targetOldKey = oldKey.substring(domain.length + 1);
+        }
+
+        let targetNewKey = newKey;
+        if (newKey.startsWith(domain + '.')) {
+            targetNewKey = newKey.substring(domain.length + 1);
+        }
+
+        const oldKeyParts = targetOldKey.split('.');
+        const newKeyParts = targetNewKey.split('.');
+
+        // Find the line with the old key
+        const lineIndex = this.findKeyLine(document, oldKeyParts, true);
+
+        if (lineIndex === -1) {
+            console.log(`NeonHandler.renameKey: Key '${oldKey}' not found in ${fileUri.path}`);
+            return;
+        }
+
+        const line = document.lineAt(lineIndex);
+        const text = line.text;
+
+        // The leaf key is the last part of the key path
+        const oldLeafKey = oldKeyParts[oldKeyParts.length - 1];
+        const newLeafKey = newKeyParts[newKeyParts.length - 1];
+
+        // Replace only the leaf key in the line
+        // Regex to match the key at the start of the line (after optional whitespace and quotes)
+        const keyRegex = new RegExp(`^(\\s*)(['"]?)${this.escapeRegex(oldLeafKey)}\\2(\\s*[:=])`);
+        const match = text.match(keyRegex);
+
+        if (!match) {
+            console.log(`NeonHandler.renameKey: Could not match key pattern in line: ${text}`);
+            return;
+        }
+
+        const newText = text.replace(keyRegex, `$1$2${newLeafKey}$2$3`);
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(fileUri, line.range, newText);
+
+        await vscode.workspace.applyEdit(edit);
+        await document.save();
+    }
+
+    /**
+     * Escapes special regex characters in a string.
+     */
+    private static escapeRegex(str: string): string {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
 }
+
