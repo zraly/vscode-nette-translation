@@ -225,7 +225,9 @@ export class TranslationPanel {
         console.log('[TranslationPanel] API Key present:', !!apiKey);
 
         if (!apiKey) {
-            vscode.window.showErrorMessage('API Key for auto-translation is missing. Please check settings.');
+            const errorMsg = 'API Key for auto-translation is missing. Please check settings.';
+            vscode.window.showErrorMessage(errorMsg);
+            this._panel.webview.postMessage({ command: 'translationError', error: errorMsg });
             return;
         }
 
@@ -234,10 +236,20 @@ export class TranslationPanel {
             const translator = new Translator(apiKey);
             const translations = await translator.translate(sourceText, sourceLang, targetLangs);
             console.log('[TranslationPanel] Got translations:', translations);
+            
+            if (translations.length === 0) {
+                const errorMsg = 'Translation returned empty result. Check API key and model settings.';
+                vscode.window.showWarningMessage(errorMsg);
+                this._panel.webview.postMessage({ command: 'translationError', error: errorMsg });
+                return;
+            }
+            
             this._panel.webview.postMessage({ command: 'translationResult', data: translations });
-        } catch (e) {
-            console.log('[TranslationPanel] Translation error:', e);
-            vscode.window.showErrorMessage('Auto-translation failed.');
+        } catch (e: any) {
+            const errorMsg = e?.message || 'Unknown translation error';
+            console.error('[TranslationPanel] Translation error:', e);
+            vscode.window.showErrorMessage('Auto-translation failed: ' + errorMsg);
+            this._panel.webview.postMessage({ command: 'translationError', error: errorMsg });
         }
     }
 
@@ -618,6 +630,10 @@ export class TranslationPanel {
                     }
                 });
                 document.getElementById('loader').classList.remove('visible');
+            } else if (message.command === 'translationError') {
+                // Hide loader and show error was already displayed via vscode notification
+                document.getElementById('loader').classList.remove('visible');
+                console.error('[Webview] Translation error:', message.error);
             } else if (message.command === 'keyError') {
                 // Show error on key input
                 const keyInput = document.getElementById('key-input');

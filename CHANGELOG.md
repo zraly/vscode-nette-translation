@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2026-01-22
+
+### Fixed
+- Fixed "Translating..." loader stuck indefinitely when translation fails
+  - Added proper error handling for missing API key, empty responses, and API errors
+  - Loader now hides and shows error notification on any failure
+- Added detailed error messages for common API issues (invalid key, rate limit, model not found, network errors)
+
 ## [1.1.1] - 2026-01-16
 
 ### Changed
