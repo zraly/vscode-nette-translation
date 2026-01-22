@@ -12,27 +12,37 @@ export function activate(context: vscode.ExtensionContext) {
     const codeLensProvider = vscode.languages.registerCodeLensProvider('latte', new TranslationCodeLensProvider());
     context.subscriptions.push(codeLensProvider);
 
-    let disposable = vscode.commands.registerCommand('netteTranslations.edit', (keyArg?: string) => {
+    let disposable = vscode.commands.registerCommand('netteTranslations.edit', (keyArg?: string, paramsArg?: string[]) => {
         // Attempt to get key from cursor if available OR use keyArg
         let key = keyArg || '';
+        let params: string[] = paramsArg || [];
 
         if (!key) {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
-                // ... (logic to find key from cursor if NOT passed)
-                const range = editor.document.getWordRangeAtPosition(editor.selection.active, /\{_['"]?[\w\.]+['"]?(?:\|[^}]+)?\}/);
+                // Match translation with optional parameters
+                const range = editor.document.getWordRangeAtPosition(editor.selection.active, /\{_['"]?[\w\.]+['"]?(?:,\s*\[[^\]]*\])?(?:\|[^}]+)?\}/);
                 if (range) {
                     const text = editor.document.getText(range);
                     const match = text.match(/\{_['"]?([\w\.]+)['"]?/);
                     if (match) {
                         key = match[1];
                     }
+                    // Extract params if present
+                    const paramsMatch = text.match(/,\s*\[([^\]]*)\]/);
+                    if (paramsMatch) {
+                        const paramRegex = /['"](\w+)['"]\s*=>/g;
+                        let paramMatch;
+                        while ((paramMatch = paramRegex.exec(paramsMatch[1])) !== null) {
+                            params.push(paramMatch[1]);
+                        }
+                    }
                 }
             }
         }
 
         if (key) {
-            TranslationPanel.createOrShow(context.extensionUri, key);
+            TranslationPanel.createOrShow(context.extensionUri, key, params);
         } else {
             vscode.window.showInformationMessage('No translation key found to edit.');
         }

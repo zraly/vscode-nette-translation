@@ -2,12 +2,33 @@ import * as vscode from 'vscode';
 
 export class TranslationCodeLensProvider implements vscode.CodeLensProvider {
 
+    /**
+     * Extract parameter names from Latte translation array syntax
+     * e.g. "['ip' => $domain->dnsRecordA, 'name' => $user]" => ['ip', 'name']
+     */
+    private extractParams(paramsString: string): string[] {
+        const params: string[] = [];
+        // Match 'paramName' => or "paramName" => patterns
+        const paramRegex = /['"](\w+)['"]\s*=>/g;
+        let paramMatch;
+        while ((paramMatch = paramRegex.exec(paramsString)) !== null) {
+            params.push(paramMatch[1]);
+        }
+        return params;
+    }
+
     public provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
         const codeLenses: vscode.CodeLens[] = [];
         const text = document.getText();
 
-        // Match {_key} or {_//key} (absolute) or {_'key'} or {_"key"}
-        const regex = /\{_\/{0,2}['\"]?([\w\.]+)['\"]?(?:\|[^}]+)?\}/g;
+        // Match {_key} or {_//key} (absolute) or {_'key'} or {_"key"} with optional parameters and filters
+        // Examples:
+        //   {_key}
+        //   {_'key'}
+        //   {_key, ['param' => $value]}
+        //   {_key, ['param' => $value]|filter}
+        //   {_//absoluteKey}
+        const regex = /\{_\/{0,2}['\"]?([\w\.]+)['\"]?(?:,\s*(\[[^\]]*\]))?(?:\|[^}]+)?\}/g;
 
         let match;
         while ((match = regex.exec(text)) !== null) {
@@ -18,6 +39,10 @@ export class TranslationCodeLensProvider implements vscode.CodeLensProvider {
             // Check if this is an absolute key (starts with //)
             const fullMatch = match[0];
             const isAbsolute = fullMatch.includes('{_//');
+            
+            // Extract parameters if present
+            const paramsString = match[2] || '';
+            const params = this.extractParams(paramsString);
 
             let key = match[1];
 
@@ -68,10 +93,10 @@ export class TranslationCodeLensProvider implements vscode.CodeLensProvider {
             const fullKey = namespace ? `${namespace}.${key}` : key;
 
             const command: vscode.Command = {
-                title: 'Edit Translation',
-                tooltip: 'Edit this translation key',
+                title: params.length > 0 ? `Edit Translation (${params.map(p => '%' + p + '%').join(', ')})` : 'Edit Translation',
+                tooltip: params.length > 0 ? `Edit translation with params: ${params.join(', ')}` : 'Edit this translation key',
                 command: 'netteTranslations.edit',
-                arguments: [fullKey]
+                arguments: [fullKey, params]
             };
 
             codeLenses.push(new vscode.CodeLens(range, command));

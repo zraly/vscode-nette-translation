@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.3] - 2026-01-22
+
+### Added
+- Support for translations with parameters: `{_key, ['param' => $value]}`
+- CodeLens now shows parameter names: "Edit Translation (%ip%, %name%)"
+- Clickable parameter tags in translation dialog
+  - Click to insert `%paramName%` at cursor position in any translation field
+  - Visual feedback on insertion
+
 ## [1.1.2] - 2026-01-22
 
 ### Fixed

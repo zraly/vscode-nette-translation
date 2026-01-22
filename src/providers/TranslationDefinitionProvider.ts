@@ -10,8 +10,9 @@ export class TranslationDefinitionProvider implements vscode.DefinitionProvider 
     ): Promise<vscode.Definition | undefined> {
         console.log('TDP: provideDefinition called');
 
-        // Regex to match {_key} or {_//key} (absolute) or {_'key'} or {_"key"}
-        const range = document.getWordRangeAtPosition(position, /\{_\/{0,2}['"]?[\w\.]+['"]?(?:\|[^}]+)?\}/);
+        // Regex to match {_key} or {_//key} (absolute) or {_'key'} or {_"key"} with optional parameters
+        // Examples: {_key}, {_key, ['param' => $val]}, {_key|filter}
+        const range = document.getWordRangeAtPosition(position, /\{_\/{0,2}['"]?[\w\.]+['"]?(?:,\s*\[[^\]]*\])?(?:\|[^}]+)?\}/);
         if (!range) {
             console.log('TDP: No range matched');
             return undefined;

@@ -8,14 +8,14 @@ export class TranslationPanel {
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
 
-    public static createOrShow(extensionUri: vscode.Uri, key: string) {
+    public static createOrShow(extensionUri: vscode.Uri, key: string, params: string[] = []) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
 
         if (TranslationPanel.currentPanel) {
             TranslationPanel.currentPanel._panel.reveal(column);
-            TranslationPanel.currentPanel.loadData(key);
+            TranslationPanel.currentPanel.loadData(key, params);
             return;
         }
 
@@ -30,7 +30,7 @@ export class TranslationPanel {
         );
 
         TranslationPanel.currentPanel = new TranslationPanel(panel, extensionUri);
-        TranslationPanel.currentPanel.loadData(key);
+        TranslationPanel.currentPanel.loadData(key, params);
     }
 
     private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
@@ -73,8 +73,8 @@ export class TranslationPanel {
         );
     }
 
-    public async loadData(key: string) {
-        console.log('[TranslationPanel] loadData called with key:', key);
+    public async loadData(key: string, params: string[] = []) {
+        console.log('[TranslationPanel] loadData called with key:', key, 'params:', params);
 
         // Load existing translations
         const config = vscode.workspace.getConfiguration('netteTranslations');
@@ -150,12 +150,14 @@ export class TranslationPanel {
         // Store for save operation
         this._currentKey = key;
         this._translationsData = translations;
+        this._params = params;
 
-        this._panel.webview.html = this._getWebviewContent(key, translations);
+        this._panel.webview.html = this._getWebviewContent(key, translations, params);
     }
 
     private _currentKey: string = '';
     private _translationsData: any[] = [];
+    private _params: string[] = [];
 
     private async saveTranslations(
         translations: { [lang: string]: string },
@@ -263,8 +265,18 @@ export class TranslationPanel {
         return text;
     }
 
-    private _getWebviewContent(key: string, translations: any[]) {
+    private _getWebviewContent(key: string, translations: any[], params: string[] = []) {
         const nonce = this.getNonce();
+
+        // Generate HTML for parameter tags
+        const paramsHtml = params.length > 0 ? `
+            <div class="params-container">
+                <label>AVAILABLE PARAMETERS <span class="params-hint">(click to insert)</span></label>
+                <div class="params-tags">
+                    ${params.map(p => `<button class="param-tag" data-param="${p}" title="Click to insert %${p}% at cursor">%${p}%</button>`).join('')}
+                </div>
+            </div>
+        ` : '';
 
         // Generate HTML for inputs
         // Layout: Grid with 2 columns: [Input (grow)] [Action Button (fixed)]
@@ -504,6 +516,52 @@ export class TranslationPanel {
             font-size: 0.85em;
             margin-top: -4px;
         }
+        .params-container {
+            background: var(--input-bg);
+            border: 1px solid var(--input-border);
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+        .params-container label {
+            display: block;
+            margin-bottom: 8px;
+        }
+        .params-hint {
+            opacity: 0.6;
+            font-weight: normal;
+        }
+        .params-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .param-tag {
+            background: var(--button-bg);
+            color: var(--button-fg);
+            border: none;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-family: monospace;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .param-tag:hover {
+            background: var(--button-hover);
+            transform: scale(1.05);
+        }
+        .param-tag:active {
+            transform: scale(0.95);
+        }
+        .param-tag.inserted {
+            animation: flash 0.3s ease;
+        }
+        @keyframes flash {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; background: #4caf50; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -518,6 +576,8 @@ export class TranslationPanel {
             <input type="text" id="key-input" class="key-input" value="${key}" data-original="${key}" />
             <div id="key-error" class="key-error hidden"></div>
         </div>
+        
+        ${paramsHtml}
         
         ${inputsHtml}
 
@@ -660,6 +720,50 @@ export class TranslationPanel {
         document.querySelectorAll('.translate-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 triggerTranslate(this.dataset.lang);
+            });
+        });
+
+        // Track last focused textarea for parameter insertion
+        let lastFocusedTextarea = null;
+        document.querySelectorAll('.translation-input').forEach(textarea => {
+            textarea.addEventListener('focus', function() {
+                lastFocusedTextarea = this;
+            });
+        });
+
+        // Parameter tag click handler - insert at cursor position
+        document.querySelectorAll('.param-tag').forEach(tag => {
+            tag.addEventListener('click', function() {
+                const paramName = this.dataset.param;
+                const insertText = '%' + paramName + '%';
+                
+                // Use last focused textarea, or first one if none focused
+                let targetTextarea = lastFocusedTextarea;
+                if (!targetTextarea) {
+                    targetTextarea = document.querySelector('.translation-input');
+                }
+                
+                if (targetTextarea) {
+                    const start = targetTextarea.selectionStart;
+                    const end = targetTextarea.selectionEnd;
+                    const text = targetTextarea.value;
+                    
+                    // Insert at cursor position
+                    targetTextarea.value = text.substring(0, start) + insertText + text.substring(end);
+                    
+                    // Move cursor after inserted text
+                    const newPos = start + insertText.length;
+                    targetTextarea.setSelectionRange(newPos, newPos);
+                    targetTextarea.focus();
+                    
+                    // Adjust height and update state
+                    adjustHeight(targetTextarea);
+                    updateState(targetTextarea.dataset.lang);
+                    
+                    // Visual feedback
+                    this.classList.add('inserted');
+                    setTimeout(() => this.classList.remove('inserted'), 300);
+                }
             });
         });
     </script>
