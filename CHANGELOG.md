@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.4] - 2026-01-22
+
+### Added
+- Multiline translation support using NEON triple-quote syntax (`'''`)
+- When translation contains newlines, it's saved in readable multiline format
+
 ## [1.1.3] - 2026-01-22
 
 ### Added

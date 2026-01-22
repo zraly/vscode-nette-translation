@@ -130,13 +130,23 @@ export class TranslationPanel {
 
                 if (sepIdx >= 0) {
                     let rawValue = line.substring(sepIdx + 1).trim();
-                    // Remove surrounding quotes if present
-                    if ((rawValue.startsWith('"') && rawValue.endsWith('"')) ||
-                        (rawValue.startsWith("'") && rawValue.endsWith("'"))) {
-                        rawValue = rawValue.slice(1, -1);
+                    
+                    // Check for multiline string (triple quotes)
+                    if (rawValue === "'''" || rawValue === '"""') {
+                        const delimiter = rawValue;
+                        const multilineValue = this.extractMultilineValue(doc, keyLoc.range.start.line, delimiter);
+                        value = multilineValue;
+                        console.log('[TranslationPanel] Extracted multiline value:', value);
+                    } else {
+                        // Remove surrounding quotes if present
+                        if ((rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+                            (rawValue.startsWith("'") && rawValue.endsWith("'"))) {
+                            rawValue = rawValue.slice(1, -1);
+                        }
+                        // Unescape NEON escape sequences
+                        value = this.unescapeNeonValue(rawValue);
+                        console.log('[TranslationPanel] Extracted value:', value);
                     }
-                    value = rawValue;
-                    console.log('[TranslationPanel] Extracted value:', value);
                 }
             }
 
@@ -263,6 +273,53 @@ export class TranslationPanel {
             text += possible.charAt(Math.floor(Math.random() * possible.length));
         }
         return text;
+    }
+
+    /**
+     * Unescapes NEON escape sequences in a string value.
+     */
+    private unescapeNeonValue(value: string): string {
+        return value
+            .replace(/\\n/g, '\n')   // Unescape newlines
+            .replace(/\\r/g, '\r')   // Unescape carriage returns
+            .replace(/\\t/g, '\t')   // Unescape tabs
+            .replace(/\\"/g, '"')    // Unescape double quotes
+            .replace(/\\\\/g, '\\'); // Unescape backslashes (must be last)
+    }
+
+    /**
+     * Extracts a multiline value from triple-quoted NEON string.
+     */
+    private extractMultilineValue(doc: vscode.TextDocument, startLine: number, delimiter: string): string {
+        const lines: string[] = [];
+        let foundEnd = false;
+        
+        // Find the base indentation from the content lines
+        let baseIndent = -1;
+        
+        for (let i = startLine + 1; i < doc.lineCount; i++) {
+            const lineText = doc.lineAt(i).text;
+            
+            // Check if this line contains the closing delimiter
+            if (lineText.trim() === delimiter || lineText.trimEnd().endsWith(delimiter)) {
+                foundEnd = true;
+                break;
+            }
+            
+            // Determine base indentation from first non-empty line
+            if (baseIndent === -1 && lineText.trim().length > 0) {
+                baseIndent = lineText.search(/\S/);
+            }
+            
+            // Remove the base indentation from each line
+            if (baseIndent > 0 && lineText.length >= baseIndent) {
+                lines.push(lineText.substring(baseIndent));
+            } else {
+                lines.push(lineText.trimStart());
+            }
+        }
+        
+        return lines.join('\n');
     }
 
     private _getWebviewContent(key: string, translations: any[], params: string[] = []) {

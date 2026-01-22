@@ -145,11 +145,31 @@ export class NeonHandler {
             const match = text.match(/^([\s\w\.-]+[:=]\s*)(.*)$/);
             if (match) {
                 // match[1] is "  key: "
-                // Replace match[2] with new quote value
-                // Handle standard quoting for neon if needed (simple quotes for now)
-                const newValue = `"${value}"`;
-                const newText = match[1] + newValue;
-                edit.replace(fileUri, line.range, newText);
+                const keyPart = match[1];
+                const keyIndent = text.search(/\S/);
+                const indentUnit = this.detectIndentUnit(document);
+                
+                // Check if value contains newlines - use triple quotes for multiline
+                if (value.includes('\n')) {
+                    // Delete old value (might be multiline)
+                    const endLine = this.findValueEnd(document, lineIndex);
+                    const rangeToReplace = new vscode.Range(
+                        line.range.start,
+                        document.lineAt(endLine).range.end
+                    );
+                    const multilineValue = this.formatMultilineValue(value, keyIndent, indentUnit);
+                    edit.replace(fileUri, rangeToReplace, keyPart + multilineValue);
+                } else {
+                    // Single line - use simple quoted format
+                    // But we still need to handle if old value was multiline
+                    const endLine = this.findValueEnd(document, lineIndex);
+                    const rangeToReplace = new vscode.Range(
+                        line.range.start,
+                        document.lineAt(endLine).range.end
+                    );
+                    const newValue = `"${this.escapeNeonValue(value)}"`;
+                    edit.replace(fileUri, rangeToReplace, keyPart + newValue);
+                }
             }
         } else {
             // Try to find the deepest existing parent key and insert nested under it
@@ -179,7 +199,12 @@ export class NeonHandler {
 
                     if (i === remainingParts.length - 1) {
                         // Last part - add the value
-                        content += `\n${indent}${part}: "${value}"`;
+                        if (value.includes('\n')) {
+                            const valueIndent = indentLevel * indentUnit.length;
+                            content += `\n${indent}${part}: ${this.formatMultilineValue(value, valueIndent, indentUnit)}`;
+                        } else {
+                            content += `\n${indent}${part}: "${this.escapeNeonValue(value)}"`;
+                        }
                     } else {
                         // Intermediate part - just the key
                         content += `\n${indent}${part}:`;
@@ -201,7 +226,12 @@ export class NeonHandler {
                     const indent = i === 0 ? '' : indentUnit.repeat(i);
 
                     if (i === keyParts.length - 1) {
-                        content += `${indent}${part}: "${value}"`;
+                        if (value.includes('\n')) {
+                            const valueIndent = i * indentUnit.length;
+                            content += `${indent}${part}: ${this.formatMultilineValue(value, valueIndent, indentUnit)}`;
+                        } else {
+                            content += `${indent}${part}: "${this.escapeNeonValue(value)}"`;
+                        }
                     } else {
                         content += `${indent}${part}:\n`;
                     }
@@ -449,6 +479,63 @@ export class NeonHandler {
      */
     private static escapeRegex(str: string): string {
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    /**
+     * Escapes special characters in a NEON string value (for single-line strings).
+     * Handles tabs, backslashes, and quotes. Newlines should use multiline format.
+     */
+    private static escapeNeonValue(value: string): string {
+        return value
+            .replace(/\\/g, '\\\\')  // Escape backslashes first
+            .replace(/"/g, '\\"')    // Escape double quotes
+            .replace(/\t/g, '\\t');  // Escape tabs
+    }
+
+    /**
+     * Formats a multiline value using triple-quote NEON syntax.
+     */
+    private static formatMultilineValue(value: string, keyIndent: number, indentUnit: string): string {
+        const contentIndent = indentUnit.repeat(Math.floor(keyIndent / indentUnit.length) + 1);
+        const lines = value.split('\n');
+        
+        // Format: '''\n  line1\n  line2\n'''
+        let result = "'''\n";
+        for (const line of lines) {
+            result += contentIndent + line + '\n';
+        }
+        result += contentIndent.slice(0, -indentUnit.length) + "'''"; // Closing quotes at key indent level
+        
+        return result;
+    }
+
+    /**
+     * Finds the end line of a value (handles multiline strings).
+     */
+    private static findValueEnd(document: vscode.TextDocument, startLine: number): number {
+        const lines = document.getText().split('\n');
+        const firstLine = lines[startLine];
+        
+        // Check if value starts with triple quotes
+        if (firstLine.includes("'''") || firstLine.includes('"""')) {
+            const delimiter = firstLine.includes("'''") ? "'''" : '"""';
+            // Count occurrences on first line
+            const count = (firstLine.match(new RegExp(delimiter.replace(/'/g, "\\'"), 'g')) || []).length;
+            
+            if (count >= 2) {
+                // Both opening and closing on same line
+                return startLine;
+            }
+            
+            // Find closing delimiter
+            for (let i = startLine + 1; i < lines.length; i++) {
+                if (lines[i].includes(delimiter)) {
+                    return i;
+                }
+            }
+        }
+        
+        return startLine;
     }
 }
 
